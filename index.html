@@ -231,6 +231,12 @@
     color: var(--dim);
     line-height:1.6;
   }
+  footer code{
+    background: var(--bg-2);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--cyan);
+  }
 
   /* Modal */
   .overlay{
@@ -399,7 +405,8 @@
 
   <footer>
     Puter, bilder og lyder lagres automatisk og er der igjen neste gang du åpner filen.<br>
-    Hold lydklippene korte &mdash; store filer kan gå over lagringsgrensen (5&nbsp;MB per pute).
+    Du kan laste opp <code>.mp3</code>, <code>.wav</code>, <code>.ogg</code> eller <code>.mp4</code> &mdash; kun lyden spilles av fra mp4.<br>
+    Hold klippene korte &mdash; mp4-filer er ofte tyngre enn mp3, og hver pute har en lagringsgrense på 5&nbsp;MB.
   </footer>
 </div>
 
@@ -444,7 +451,7 @@
         <button type="button" class="filebtn" id="pickAudioBtn">Velg lydfil</button>
         <span class="filename" id="audioFilename">Ingen fil valgt</span>
       </div>
-      <input type="file" id="audioInput" accept="audio/*">
+      <input type="file" id="audioInput" accept="audio/*,video/mp4,.mp3,.mp4,.m4a,.wav,.ogg,.aac">
     </div>
 
     <div class="modal-actions">
