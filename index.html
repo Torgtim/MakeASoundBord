@@ -117,6 +117,30 @@
     box-shadow: 0 0 8px var(--pink);
   }
 
+  .power-btn{
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    background: var(--bg-2);
+    border: 2px solid var(--pink);
+    color: var(--pink);
+    font-family:'Bungee', sans-serif;
+    font-size: 12px;
+    letter-spacing: 1px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .1s ease, transform .08s ease;
+  }
+  .power-btn .power-icon{ font-size: 15px; line-height:1; }
+  .power-btn:hover{ background: rgba(255,46,146,0.12); }
+  .power-btn:active,
+  .power-btn.pressed{
+    transform: scale(0.94);
+    background: var(--pink);
+    color: var(--bg);
+  }
+
   .grid{
     display:grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -394,6 +418,9 @@
       <span class="txt">REDIGER</span>
       <div class="switch"></div>
     </div>
+    <button type="button" class="power-btn" id="stopAllBtn" title="Stopp all lyd">
+      <span class="power-icon">⏻</span> AV
+    </button>
   </div>
 
   <div class="grid" id="grid"></div>
@@ -475,25 +502,43 @@
   let editingId = null; // null => creating new
   let saveTimer = null;
 
-  // ---------- Persistence (window.storage) ----------
-  const IDS_KEY = 'padboard:ids';
-  const padKey = (id) => `padboard:pad:${id}`;
+  // ---------- Persistence (localStorage) ----------
+  // This file is meant to be downloaded and opened directly in a browser,
+  // not previewed inside Claude's sandboxed artifact viewer — so real
+  // localStorage is what actually survives a page refresh here.
+  const IDS_KEY = 'padboard-ids';
+  const padKey = (id) => `padboard-pad-${id}`;
+  const storageAvailable = (() => {
+    try{
+      const t = '__padboard_test__';
+      localStorage.setItem(t, '1');
+      localStorage.removeItem(t);
+      return true;
+    }catch(e){
+      return false;
+    }
+  })();
 
-  async function loadPads(){
+  function loadPads(){
+    if(!storageAvailable){
+      setTicker('⚠️ Nettleseren tillater ikke lagring her. Last ned filen og åpne den direkte for at lagring skal fungere.');
+      render();
+      return;
+    }
     setTicker('Laster lagrede puter …');
     let ids = [];
     try{
-      const res = await window.storage.get(IDS_KEY, false);
-      if(res && res.value) ids = JSON.parse(res.value);
+      const raw = localStorage.getItem(IDS_KEY);
+      if(raw) ids = JSON.parse(raw);
     }catch(e){
-      ids = []; // nothing saved yet
+      ids = [];
     }
 
     const loaded = [];
     for(const id of ids){
       try{
-        const res = await window.storage.get(padKey(id), false);
-        if(res && res.value) loaded.push(JSON.parse(res.value));
+        const raw = localStorage.getItem(padKey(id));
+        if(raw) loaded.push(JSON.parse(raw));
       }catch(e){
         // that pad's data is missing/corrupt, skip it
       }
@@ -510,29 +555,32 @@
     render();
   }
 
-  async function persistPadIds(){
+  function persistPadIds(){
+    if(!storageAvailable) return;
     try{
-      await window.storage.set(IDS_KEY, JSON.stringify(pads.map(p => p.id)), false);
+      localStorage.setItem(IDS_KEY, JSON.stringify(pads.map(p => p.id)));
     }catch(e){
       console.error('Klarte ikke å lagre rekkefølgen på putene', e);
     }
   }
 
-  async function persistPad(pad){
+  function persistPad(pad){
+    if(!storageAvailable){
+      setTicker('⚠️ Kan ikke lagre her. Åpne den nedlastede filen direkte i nettleseren.');
+      return;
+    }
     try{
-      const result = await window.storage.set(padKey(pad.id), JSON.stringify(pad), false);
-      if(!result){
-        setTicker('⚠️ Kunne ikke lagre puten (kanskje filen er for stor).');
-      }
+      localStorage.setItem(padKey(pad.id), JSON.stringify(pad));
     }catch(e){
       console.error('Lagringsfeil', e);
-      setTicker('⚠️ Kunne ikke lagre puten (kanskje filen er for stor).');
+      setTicker('⚠️ Kunne ikke lagre puten (filen er nok for stor for lagringsplassen).');
     }
   }
 
-  async function removePadStorage(id){
+  function removePadStorage(id){
+    if(!storageAvailable) return;
     try{
-      await window.storage.delete(padKey(id), false);
+      localStorage.removeItem(padKey(id));
     }catch(e){
       // already gone, ignore
     }
@@ -570,9 +618,33 @@
     osc.connect(gain).connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + 0.42);
+    const untrack = trackSource(() => osc.stop());
+    osc.onended = untrack;
   }
 
   function setTicker(html){ ticker.innerHTML = html; }
+
+  // ---------- Track & stop active sounds ----------
+  let activeSources = [];
+
+  function trackSource(stopFn){
+    const entry = { stop: stopFn };
+    activeSources.push(entry);
+    return () => {
+      activeSources = activeSources.filter(e => e !== entry);
+    };
+  }
+
+  const stopAllBtn = document.getElementById('stopAllBtn');
+  stopAllBtn.addEventListener('click', () => {
+    activeSources.forEach(e => {
+      try{ e.stop(); }catch(err){ /* already stopped */ }
+    });
+    activeSources = [];
+    stopAllBtn.classList.add('pressed');
+    setTimeout(() => stopAllBtn.classList.remove('pressed'), 150);
+    setTicker('Alt lyd stoppet.');
+  });
 
   // ---------- Rendering ----------
   function render(){
@@ -629,6 +701,8 @@
       const label = p.name || 'Navnløs pute';
       if(p.audioUrl){
         const a = new Audio(p.audioUrl);
+        const untrack = trackSource(() => { a.pause(); a.currentTime = 0; });
+        a.addEventListener('ended', untrack);
         a.play();
         setTicker(`Spiller <b>${label}</b>`);
       } else {
@@ -776,7 +850,7 @@
   cancelBtn.addEventListener('click', closeModal);
   overlay.addEventListener('click', (e) => { if(e.target === overlay) closeModal(); });
 
-  saveBtn.addEventListener('click', async () => {
+  saveBtn.addEventListener('click', () => {
     if(!draft.icon.value){
       alert('Velg en emoji eller last opp et bilde først.');
       return;
@@ -794,20 +868,18 @@
     }
     closeModal();
     render();
-    setTicker(`Lagrer <b>${savedPad.name || 'navnløs pute'}</b> …`);
-    await persistPad(savedPad);
-    if(isNew) await persistPadIds();
+    persistPad(savedPad);
+    if(isNew) persistPadIds();
     setTicker(`<b>${savedPad.name || 'Navnløs pute'}</b> er lagret ✅`);
   });
 
-  deleteBtn.addEventListener('click', async () => {
+  deleteBtn.addEventListener('click', () => {
     const removedId = editingId;
     pads = pads.filter(p => p.id !== removedId);
     closeModal();
     render();
-    setTicker('Sletter pute …');
-    await removePadStorage(removedId);
-    await persistPadIds();
+    removePadStorage(removedId);
+    persistPadIds();
     setTicker('Pute slettet og fjernet fra lagring.');
   });
 
